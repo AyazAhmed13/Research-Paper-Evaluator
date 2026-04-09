@@ -15,7 +15,7 @@ __pycache__/
 # Reports output folder
 reports/
 *.pdf
-*.md
+reports/*.md   # Only ignore markdown files inside reports folder
 
 # Streamlit
 .streamlit/secrets.toml
