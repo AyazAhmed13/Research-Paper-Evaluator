@@ -1,0 +1,25 @@
+# Core Agentic Framework
+crewai==1.13.0
+crewai-tools==1.13.0
+
+# LLM Integration
+google-generativeai==0.8.6
+
+# Web Scraping & PDF Processing
+arxiv==2.4.0
+pymupdf==1.26.6
+requests==2.32.5
+beautifulsoup4==4.13.4
+lxml==5.3.0
+
+# Utilities
+tiktoken==0.8.0
+python-dotenv==1.1.1     # <--- Changed from 1.2.2
+
+# Search Tools for Agents
+semanticscholar==0.8.4
+ddgs==9.13.0
+
+# Reporting & UI
+fpdf2==2.8.7
+streamlit==1.50.0
