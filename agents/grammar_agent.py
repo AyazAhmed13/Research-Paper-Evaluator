@@ -37,6 +37,9 @@ def build_grammar_agent(llm) -> Agent:
 def build_grammar_task(agent: Agent, paper_context: str, title: str) -> Task:
     return Task(
         description=dedent(f"""
+            NOTE: If the paper is divided into [PAPER SEGMENT X OF Y] sections below,
+            analyze ALL segments and provide ONE unified assessment in your final output.
+
             Evaluate the language quality of the research paper titled:
             "{title}"
 

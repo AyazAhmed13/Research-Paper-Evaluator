@@ -37,6 +37,9 @@ def build_consistency_agent(llm) -> Agent:
 def build_consistency_task(agent: Agent, paper_context: str, title: str) -> Task:
     return Task(
         description=dedent(f"""
+            NOTE: If the paper is divided into [PAPER SEGMENT X OF Y] sections below,
+            analyze ALL segments and provide ONE unified assessment in your final output.
+
             Analyze the following sections of the research paper titled:
             "{title}"
 

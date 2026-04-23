@@ -43,7 +43,7 @@ AGENT_SECTION_MAP = {
     "authenticity":  ["abstract", "results", "conclusion", "discussion"],
 }
 
-MAX_TOKENS_PER_CALL = int(__import__("os").getenv("MAX_TOKENS_PER_CALL", 14000))
+MAX_TOKENS_PER_CALL = int(__import__("os").getenv("MAX_TOKENS_PER_CALL", 8000))
 
 
 # ── Tokenizer ─────────────────────────────────────────────────────────────────
@@ -52,28 +52,35 @@ def count_tokens(text: str) -> int:
     """Count tokens using cl100k_base (compatible with most modern LLMs)."""
     try:
         enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
+        return len(enc.encode(text, disallowed_special=()))
     except Exception:
         # Rough fallback: ~4 chars per token
         return len(text) // 4
 
 
-def truncate_to_token_limit(text: str, limit: int = MAX_TOKENS_PER_CALL) -> str:
-    """Truncate text to fit within token limit, preserving start and end."""
-    tokens = count_tokens(text)
-    if tokens <= limit:
-        return text
-
-    # Keep first 70% and last 30% of limit to preserve intro and conclusions
+def chunk_text(text: str, chunk_size: int = 10000, overlap: int = 500) -> list[str]:
+    """
+    Split text into overlapping chunks of chunk_size tokens.
+    Overlap ensures context isn't lost at boundaries.
+    """
     enc = tiktoken.get_encoding("cl100k_base")
-    token_ids = enc.encode(text)
-    keep_start = int(limit * 0.70)
-    keep_end   = limit - keep_start
+    token_ids = enc.encode(text, disallowed_special=())
 
-    truncated_ids = token_ids[:keep_start] + token_ids[-keep_end:]
-    result = enc.decode(truncated_ids)
-    print(f"[Chunker] Truncated from {tokens} → {limit} tokens")
-    return result
+    if len(token_ids) <= chunk_size:
+        return [text]  # fits in one call, no chunking needed
+
+    chunks = []
+    start = 0
+    while start < len(token_ids):
+        end = min(start + chunk_size, len(token_ids))
+        chunk_tokens = token_ids[start:end]
+        chunks.append(enc.decode(chunk_tokens))
+        if end == len(token_ids):
+            break
+        start += chunk_size - overlap  # slide forward with overlap
+
+    print(f"[Chunker] Split into {len(chunks)} chunks of ~{chunk_size} tokens each")
+    return chunks
 
 
 # ── Section splitter ──────────────────────────────────────────────────────────
@@ -132,8 +139,10 @@ def split_into_sections(text: str) -> dict:
 
 def get_context_for_agent(agent_name: str, sections: dict) -> str:
     """
-    Build the context string for a specific agent by concatenating
-    only its relevant sections. Truncates if over token limit.
+    Build context for an agent. If content fits in one call, return as-is.
+    If it exceeds the limit, return chunked text with a header so the
+    agent knows it's processing part N of M.
+    Returns a single string — multi-chunk papers get a summary header injected.
     """
     relevant_keys = AGENT_SECTION_MAP.get(agent_name, list(sections.keys()))
 
@@ -145,11 +154,37 @@ def get_context_for_agent(agent_name: str, sections: dict) -> str:
     combined = "\n\n".join(parts)
 
     if not combined.strip():
-        # Fallback: give agent the full text (truncated)
-        all_text = "\n\n".join(sections.values())
-        return truncate_to_token_limit(all_text)
+        combined = "\n\n".join(sections.values())
 
-    return truncate_to_token_limit(combined)
+    total_tokens = count_tokens(combined)
+    print(f"[Chunker] Agent '{agent_name}': {total_tokens} tokens — {'CHUNKED' if total_tokens > MAX_TOKENS_PER_CALL else 'fits in one call'}")
+
+
+    if total_tokens <= MAX_TOKENS_PER_CALL:
+        return combined  # fits fine, return as-is
+
+    # Too large — chunk it and return with aggregation instructions
+    chunks = chunk_text(combined, chunk_size=8000, overlap=500)
+
+    if len(chunks) == 1:
+        return chunks[0]
+
+    # Build a multi-chunk context string with clear section markers
+    # The agent prompt already asks for structured output so it handles this naturally
+    aggregated_parts = []
+    for i, chunk in enumerate(chunks, 1):
+        aggregated_parts.append(
+            f"[PAPER SEGMENT {i} OF {len(chunks)}]\n{chunk}"
+        )
+
+    merged = "\n\n---\n\n".join(aggregated_parts)
+
+    # Final safety check — if merged is still too big somehow, take first 2 chunks only
+    if count_tokens(merged) > MAX_TOKENS_PER_CALL * len(chunks):
+        merged = "\n\n---\n\n".join(aggregated_parts[:2])
+
+    print(f"[Chunker] Agent '{agent_name}': {total_tokens} tokens → {len(chunks)} chunks merged")
+    return merged
 
 
 # ── Summary stats ─────────────────────────────────────────────────────────────

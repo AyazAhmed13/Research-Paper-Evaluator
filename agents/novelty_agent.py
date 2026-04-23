@@ -68,6 +68,9 @@ def build_novelty_agent(llm) -> Agent:
 def build_novelty_task(agent: Agent, paper_context: str, title: str) -> Task:
     return Task(
         description=dedent(f"""
+            NOTE: If the paper is divided into [PAPER SEGMENT X OF Y] sections below,
+            analyze ALL segments and provide ONE unified assessment in your final output.
+
             Assess the novelty and originality of the research paper titled:
             "{title}"
 

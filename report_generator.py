@@ -303,7 +303,9 @@ def generate_pdf_report(evaluation: dict) -> str:
 
     pdf.set_font("Helvetica", size=10)
     pdf.set_text_color(80, 80, 80)
-    pdf.cell(0, 6, f"Authors: {meta.get('authors', 'Unknown')}", ln=True)
+    authors_raw = meta.get('authors', 'Unknown')
+    authors_safe = authors_raw.encode('latin-1', errors='replace').decode('latin-1')
+    pdf.cell(0, 6, f"Authors: {authors_safe}", ln=True)
     pdf.cell(0, 6, f"arXiv: https://arxiv.org/abs/{meta.get('arxiv_id', '')}", ln=True)
     pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}", ln=True)
     pdf.ln(6)

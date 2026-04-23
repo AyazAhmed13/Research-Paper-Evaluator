@@ -23,6 +23,10 @@ from agents.novelty_agent      import build_novelty_agent,      build_novelty_ta
 from agents.factcheck_agent    import build_factcheck_agent,    build_factcheck_task
 from agents.authenticity_agent import build_authenticity_agent, build_authenticity_task
 
+import os
+os.environ.pop("SSL_CERT_FILE", None)
+os.environ.pop("REQUESTS_CA_BUNDLE", None)
+
 load_dotenv()
 
 
@@ -38,34 +42,12 @@ def get_llm():
     
     # Use a working free model (Gemma 4 26B is powerful, 262K context)
     return LLM(
-        model="openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
+        model="openrouter/nvidia/nemotron-3-nano-30b-a3b:free",
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
         temperature=0.1,
-        max_tokens=4096,
+        max_tokens=8192,
     )
-'''
-def get_llm():
-    """
-    Returns a CrewAI LLM instance for Gemini 1.5 Flash (free tier, 1M context).
-    Uses CrewAI's native LLM class – no LangChain dependencies.
-    """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "GEMINI_API_KEY not set. "
-            "Get a free key at: https://aistudio.google.com/app/apikey\n"
-            "Then add it to your .env file."
-        )
-
-    # CrewAI's LLM class uses LiteLLM under the hood
-    return LLM(
-        model="gemini/gemini-2.5-flash",   # LiteLLM model string
-        temperature=0.1,                   # Low temp for analytical tasks
-        max_tokens=4096,                   # Reasonable output limit
-        api_key=api_key,                   # Explicitly pass the key
-    )'''
-
 
 
 # ── Main evaluation pipeline ──────────────────────────────────────────────────

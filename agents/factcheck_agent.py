@@ -68,6 +68,9 @@ def build_factcheck_agent(llm) -> Agent:
 def build_factcheck_task(agent: Agent, paper_context: str, title: str) -> Task:
     return Task(
         description=dedent(f"""
+            NOTE: If the paper is divided into [PAPER SEGMENT X OF Y] sections below,
+            analyze ALL segments and provide ONE unified assessment in your final output.
+
             Fact-check the claims in the research paper titled:
             "{title}"
 

@@ -142,9 +142,10 @@ if run_button:
         st.error("Please enter an arXiv URL.")
         st.stop()
 
-    if not os.getenv("GEMINI_API_KEY"):
-        st.error("GEMINI_API_KEY not found. Make sure it is set in your .env file.")
+    if not os.getenv("OPENROUTER_API_KEY"):
+        st.error("OPENROUTER_API_KEY not found. Make sure it is set in your .env file.")
         st.stop()
+
 
     st.markdown("### ⏳ Running Evaluation...")
     progress_bar = st.progress(0)

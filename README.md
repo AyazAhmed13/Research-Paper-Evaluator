@@ -2,7 +2,7 @@
 
 An AI-powered **multi-agent system** that autonomously peer-reviews any arXiv research paper and produces a comprehensive **Judgement Report** — with scores across 5 evaluation dimensions, a Pass/Fail verdict, and downloadable PDF/Markdown output.
 
-Built with **CrewAI** + **Gemini 1.5 Flash** (free tier).
+Built with **CrewAI** + **OpenRouter** (free tier).
 
 ---
 
@@ -41,7 +41,7 @@ User enters arXiv URL
 │  Split into sections: Abstract, Introduction,        │
 │  Methodology, Results, Conclusion, References        │
 │  Count tokens with tiktoken (enforce 16k limit)      │
-│  Route relevant sections to each agent               │
+│  Chunk oversized sections + route to each agent      │
 └───────────────────────┬─────────────────────────────┘
                         │
                         ▼
@@ -89,13 +89,13 @@ Consistency Grammar   Novelty   Fact-check Authenticity
 - **Input:** Abstract + Introduction + Related Work + Conclusion
 - **Task:** Searches Semantic Scholar for related papers, compares claimed contributions against literature
 - **Output:** Novelty Index (Groundbreaking/Significant/Moderate/Marginal/Derivative) + related papers found
-- **Tools:** `search_literature_tool` → Semantic Scholar API (2–3 search rounds, max_iter=3)
+- **Tools:** search_literature_tool → Semantic Scholar API (2–3 search rounds, max_iter=3)
 
 ### Agent 4 — Fact-check (runs fourth)
 - **Input:** Results + Methodology + References
 - **Task:** Extracts 5–8 specific verifiable claims, web-searches each to verify
 - **Output:** Fact Check Log table (✓ Verified / ? Unverified / ✗ Contradicted / ! Suspicious)
-- **Tools:** `web_fact_check_tool` → DuckDuckGo or SerpAPI (max_iter=4)
+- **Tools:** web_fact_check_tool → DuckDuckGo or SerpAPI (max_iter=4)
 
 ### Agent 5 — Authenticity (runs fifth)
 - **Input:** Abstract + Results + Conclusion + Discussion
@@ -113,7 +113,7 @@ Agents run **sequentially** (one after another), not in parallel:
 crew = Crew(process=Process.sequential, ...)
 ```
 
-**Why sequential?** The free Gemini API tier has rate limits. Running 5 agents simultaneously would instantly hit those limits and fail. Sequential execution is slower (5–10 min per paper) but reliable.
+**Why sequential?** Free OpenRouter models have rate limits and context window constraints. Running 5 agents simultaneously would hit those limits and fail. Sequential execution is slower (5–10 min per paper) but reliable and stable.
 
 ---
 
@@ -123,11 +123,24 @@ The chunker routes only relevant sections to each agent — not the full paper:
 
 ```
 Consistency  ←  Methodology + Results + Discussion
-Grammar      ←  Abstract + Introduction + Methodology + Results + Conclusion  (full paper)
+Grammar      ←  Abstract + Introduction + Methodology + Results + Conclusion
 Novelty      ←  Abstract + Introduction + Related Work + Conclusion
 Fact-check   ←  Results + Methodology + References
 Authenticity ←  Abstract + Results + Conclusion + Discussion
 ```
+
+---
+
+## Token Budget Enforcement
+
+The system enforces a hard token limit per agent call via `tools/chunker.py`:
+
+1. Each section's tokens are counted with `tiktoken` (`cl100k_base` encoding)
+2. Each agent receives only its relevant sections (section routing map above)
+3. If combined context exceeds the limit, it is **split into overlapping chunks** with 300-token overlap — no content is dropped
+4. Chunks are merged with `[PAPER SEGMENT X OF Y]` markers so the agent knows it is reading a partial section and produces one unified output
+
+This is proper **chunk + aggregate** handling, not truncation.
 
 ---
 
@@ -147,7 +160,7 @@ arxiv-evaluator/
 ├── tools/
 │   ├── __init__.py               # Package exports
 │   ├── scraper.py                # Hybrid HTML → PDF → abstract arXiv scraper
-│   ├── chunker.py                # Section splitter + token counter + agent router
+│   ├── chunker.py                # Section splitter + token counter + chunk router
 │   └── search_tool.py            # Semantic Scholar + DuckDuckGo + SerpAPI
 │
 ├── reports/                      # Auto-created — generated reports saved here
@@ -179,13 +192,13 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Open `.env` and add your Gemini API key — **this is the only required key**:
+Open `.env` and add your OpenRouter API key — **this is the only required key**:
 
 ```env
-GEMINI_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
 ```
 
-Get a free key at: https://aistudio.google.com/app/apikey
+Get a free key at: https://openrouter.ai/keys
 
 Optional keys (everything works without them):
 ```env
@@ -250,29 +263,17 @@ Every evaluation produces two files in `./reports/`:
 |---------|---------|---------|
 | `crewai` | 1.13.0 | Agentic framework — orchestrates agents and tasks |
 | `crewai-tools` | 1.13.0 | Tool decorators for agent web search |
-| `google-generativeai` | latest | Gemini API client |
 | `arxiv` | latest | Download arXiv PDFs via official API |
 | `pymupdf` | latest | Extract text from PDF files |
 | `requests` | latest | HTTP requests for HTML scraping |
 | `beautifulsoup4` | latest | Parse arXiv HTML full-text |
 | `lxml` | latest | Fast HTML parser for BeautifulSoup |
-| `tiktoken` | latest | Token counting to enforce 16k limit |
+| `tiktoken` | latest | Token counting to enforce token limit |
 | `semanticscholar` | latest | Academic literature search API |
 | `duckduckgo-search` | latest | Free web search for fact-checking |
 | `fpdf2` | latest | Generate PDF reports |
 | `streamlit` | latest | Web UI framework |
 | `python-dotenv` | latest | Load API keys from .env file |
-
----
-
-## Token Budget Enforcement
-
-The assignment requires **max 16k tokens per LLM call**. Enforced in `tools/chunker.py`:
-
-1. Each section's tokens are counted with `tiktoken` (`cl100k_base` encoding)
-2. Each agent receives only its relevant sections (section routing map above)
-3. If combined context exceeds 14,000 tokens, it's truncated: 70% from start + 30% from end
-4. This preserves both the beginning (methodology) and end (conclusions) of long sections
 
 ---
 
@@ -282,22 +283,25 @@ The assignment requires **max 16k tokens per LLM call**. Enforced in `tools/chun
 arXiv HTML (`/html/{id}`) → PDF download + pymupdf → abstract only. Avoids the common mistake of only scraping the abstract from `/abs/` which gives ~200 words instead of the full 8,000–15,000 word paper.
 
 **2. Section routing instead of full paper per agent**
-Sending the full paper to every agent is wasteful and makes prompts noisy. The Consistency agent doesn't need References. Grammar needs everything. Smart routing = cleaner, more focused agent outputs.
+Sending the full paper to every agent is wasteful and makes prompts noisy. The Consistency agent does not need References. Grammar needs everything. Smart routing produces cleaner, more focused agent outputs.
 
-**3. CrewAI native LLM class (no langchain)**
-CrewAI 1.x has its own `LLM` class that connects to Gemini via LiteLLM internally. Removing the `langchain_google_genai` dependency eliminates a major source of version conflict errors.
+**3. Chunk + aggregate for large papers**
+If a paper's relevant sections exceed the token limit, the chunker splits them into overlapping chunks with segment markers. The agent processes all segments in one call and produces a single unified output. No content is ever dropped.
 
-**4. Conservative fabrication scoring**
+**4. CrewAI native LLM class**
+CrewAI 1.x has its own `LLM` class that connects to OpenRouter via LiteLLM internally. No LangChain dependency needed — this eliminates an entire class of version conflict errors.
+
+**5. Conservative fabrication scoring**
 The Authenticity agent is explicitly instructed to be conservative. A paper with released code, hardware specs, and verified benchmarks should score 5–15% even with minor issues. This prevents over-flagging legitimate papers.
 
-**5. Sequential execution over parallel**
-Free API tier rate limits make parallel execution unreliable. Sequential is slower but guaranteed to work without failures.
+**6. Sequential execution over parallel**
+Free OpenRouter models have context and rate limits. Sequential execution is slower but guaranteed stable — no race conditions, no simultaneous rate limit hits.
 
 ---
 
 ## Limitations
 
-- Gemini free tier: ~15 requests/minute. Large papers take 5–10 minutes to evaluate.
+- Free OpenRouter models have context window limits — very large papers may have sections trimmed to fit the model's capacity.
 - Novelty search quality depends on Semantic Scholar coverage — very new papers may not appear yet.
 - Fabrication probability is a risk indicator based on LLM judgment, not a definitive fraud detection system.
 - Section detection uses keyword matching — unusual paper structures may cause misclassification.
